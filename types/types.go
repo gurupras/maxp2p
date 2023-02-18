@@ -32,7 +32,7 @@ type P2POperations interface {
 }
 
 type Decoder interface {
-	Decode() (interface{}, error)
+	Decode() (any, error)
 }
 
 type Encoder interface {

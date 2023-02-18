@@ -44,14 +44,14 @@ func (l *lengthDecoder) Decode() (interface{}, error) {
 	return buf, nil
 }
 
-func (m *LengthSerDe) CreateEncoder(writer io.Writer) types.Encoder {
+func (m *LengthSerDe) CreateEncoder(writer io.Writer, name string) types.Encoder {
 	return &lengthEncoder{
 		Writer:   writer,
 		lenBytes: make([]byte, 8),
 	}
 }
 
-func (m *LengthSerDe) CreateDecoder(reader io.Reader) types.Decoder {
+func (m *LengthSerDe) CreateDecoder(reader io.Reader, name string) types.Decoder {
 	return &lengthDecoder{
 		Reader:   reader,
 		lenBytes: make([]byte, 8),

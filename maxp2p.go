@@ -36,8 +36,8 @@ type IncomingSignalInterface interface {
 }
 
 type EncoderDecoder interface {
-	CreateDecoder(io.Reader) types.Decoder
-	CreateEncoder(io.Writer) types.Encoder
+	CreateDecoder(io.Reader, string) types.Decoder
+	CreateEncoder(io.Writer, string) types.Encoder
 }
 
 type MaxP2P struct {
@@ -424,7 +424,7 @@ func (m *MaxP2P) AddConnection(connID string, conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleWrites(conn *P2PConn) {
-	encoder := m.encoderDecoder.CreateEncoder(conn.combinedDC)
+	encoder := m.encoderDecoder.CreateEncoder(conn.combinedDC, conn.combinedDC.Name)
 	for pkt := range m.writeChan {
 		var err error
 		if pkt.raw {
@@ -457,7 +457,7 @@ func (m *MaxP2P) handleWrites(conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleReads(conn *P2PConn) error {
-	decoder := m.encoderDecoder.CreateDecoder(conn.combinedDC)
+	decoder := m.encoderDecoder.CreateDecoder(conn.combinedDC, conn.combinedDC.Name)
 	for {
 		data, err := decoder.Decode()
 		if err != nil {

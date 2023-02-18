@@ -10,7 +10,7 @@ import (
 )
 
 type CombinedDC struct {
-	name              string
+	Name              string
 	dc                *webrtc.DataChannel
 	raw               datachannel.ReadWriteCloser
 	ch                chan struct{}
@@ -30,7 +30,7 @@ func NewCombinedDC(dc *webrtc.DataChannel, maxBufferedAmount uint64) (*CombinedD
 		return nil, err
 	}
 	ret := &CombinedDC{
-		name:              dc.Label(),
+		Name:              dc.Label(),
 		dc:                dc,
 		raw:               raw,
 		ch:                make(chan struct{}, 1),
@@ -38,11 +38,11 @@ func NewCombinedDC(dc *webrtc.DataChannel, maxBufferedAmount uint64) (*CombinedD
 		maxBufferedAmount: maxBufferedAmount,
 	}
 	dc.OnBufferedAmountLow(func() {
-		log.Debugf("[%v]: Buffered amount low", ret.name)
+		log.Debugf("[%v]: Buffered amount low", ret.Name)
 		newVal := atomic.AddUint64(&ret.counter, 1)
-		log.Debugf("[%v]: Attempting to notify writable (counter=%v)", ret.name, newVal)
+		log.Debugf("[%v]: Attempting to notify writable (counter=%v)", ret.Name, newVal)
 		ret.ch <- struct{}{}
-		log.Debugf("[%v]: Notified writable (counter=%v)", ret.name, newVal)
+		log.Debugf("[%v]: Notified writable (counter=%v)", ret.Name, newVal)
 	})
 	return ret, nil
 }
@@ -62,9 +62,9 @@ func (dc *CombinedDC) Write(b []byte) (int, error) {
 	bufferedAmount := dc.dc.BufferedAmount()
 	if bufferedAmount > dc.maxBufferedAmount {
 		val := atomic.LoadUint64(&dc.counter)
-		log.Debugf("[%v]: Waiting for drain (bufferedAmount=%v) write=%v total=%v > %v (counter=%v)", dc.name, bufferedAmount, len(b), bufferedAmount, dc.maxBufferedAmount, val+1)
+		log.Debugf("[%v]: Waiting for drain (bufferedAmount=%v) write=%v total=%v > %v (counter=%v)", dc.Name, bufferedAmount, len(b), bufferedAmount, dc.maxBufferedAmount, val+1)
 		<-dc.ch
-		log.Debugf("[%v]: Finished waiting for drain", dc.name)
+		log.Debugf("[%v]: Finished waiting for drain", dc.Name)
 	}
 	return n, err
 }

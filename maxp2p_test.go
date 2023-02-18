@@ -175,7 +175,7 @@ func (m *maxP2PTest) TestRead() {
 						defer wg.Done()
 						combinedDC, err := utils.NewCombinedDC(dc, 1*1024*1024)
 						require.Nil(err)
-						encoder := m.maxp2p1.encoderDecoder.CreateEncoder(combinedDC)
+						encoder := m.maxp2p1.encoderDecoder.CreateEncoder(combinedDC, combinedDC.Name)
 						send = func(v interface{}) error {
 							err = encoder.Encode(expected)
 							return err
