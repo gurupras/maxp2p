@@ -183,12 +183,15 @@ func main() {
 				*name = "server"
 			}
 			received := uint64(0)
-			since := time.Now()
+			var since time.Time
 			lastBytes := uint64(0)
 			mp2p.OnData(func(data interface{}, dispose func()) {
 				defer dispose()
 				pkt := data.(*pkt)
 				b := pkt.Data
+				if received == 0 {
+					since = time.Now()
+				}
 				received += uint64(len(b))
 				now := time.Now()
 				duration := now.Sub(since).Seconds()
