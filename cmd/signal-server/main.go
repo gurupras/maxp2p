@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/alecthomas/kingpin"
-	"github.com/gurupras/maxp2p/test_utils"
+	"github.com/gurupras/maxp2p/v2/test_utils"
 	log "github.com/sirupsen/logrus"
 )
 

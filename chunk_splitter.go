@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/gurupras/maxp2p/types"
+	"github.com/gurupras/maxp2p/v2/types"
 )
 
 type ChunkSplitter struct {

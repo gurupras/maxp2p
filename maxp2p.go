@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gurupras/maxp2p/types"
-	"github.com/gurupras/maxp2p/utils"
+	"github.com/gurupras/maxp2p/v2/types"
+	"github.com/gurupras/maxp2p/v2/utils"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
 )

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/gurupras/maxp2p"
-	"github.com/gurupras/maxp2p/test_utils"
+	"github.com/gurupras/maxp2p/v2"
+	"github.com/gurupras/maxp2p/v2/test_utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
@@ -32,6 +32,10 @@ var (
 	packetSize     = client.Flag("packet-size", "Per-packet size (3 bytes will be used for headers)").Default("4096").Int()
 	duration       = client.Flag("duration", "Duration in seconds to transmit").Short('d').Default("10").Float64()
 )
+
+type pkt struct {
+	Data []byte
+}
 
 // Mostly taken from https://github.com/dustin/go-humanize/blob/master/bytes.go
 func Bytes(size float64) string {
@@ -82,7 +86,9 @@ func main() {
 
 	var serde test_utils.MsgpackSerDe
 
-	mp2p, err := maxp2p.New(*name, peer, &mNode, &serde, config, 100*1024*1024)
+	mp2p, err := maxp2p.New(*name, peer, &mNode, &serde, func() interface{} {
+		return &pkt{}
+	}, config, 100*1024*1024)
 	if err != nil {
 		log.Fatalf("Failed to create maxp2p: %v", err)
 	}
@@ -136,10 +142,11 @@ func main() {
 			}
 
 			mp2p.Start(int(*numConnections))
-			// We will write packets of size 65532 (msgpack takes 3 extra bytes)
 			writeBytes := make([]byte, *packetSize)
 			rand.Read(writeBytes)
 			encodedBytes := writeBytes
+
+			pkt := &pkt{Data: encodedBytes}
 
 			log.Debugf("Going to write %v bytes every time", len(encodedBytes))
 
@@ -162,7 +169,7 @@ func main() {
 					since = now
 					lastBytes = sent
 				}
-				err = mp2p.Send(encodedBytes)
+				err = mp2p.Send(pkt)
 				if err != nil {
 					log.Fatalf("Failed to send bytes to peer: %v", err)
 				}
@@ -178,8 +185,10 @@ func main() {
 			received := uint64(0)
 			since := time.Now()
 			lastBytes := uint64(0)
-			mp2p.OnData(func(data interface{}) {
-				b := data.([]byte)
+			mp2p.OnData(func(data interface{}, dispose func()) {
+				defer dispose()
+				pkt := data.(*pkt)
+				b := pkt.Data
 				received += uint64(len(b))
 				now := time.Now()
 				duration := now.Sub(since).Seconds()

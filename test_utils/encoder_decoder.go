@@ -3,7 +3,7 @@ package test_utils
 import (
 	"io"
 
-	"github.com/gurupras/maxp2p/types"
+	"github.com/gurupras/maxp2p/v2/types"
 	"github.com/vmihailenco/msgpack"
 )
 

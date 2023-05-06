@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gurupras/maxp2p/test_utils"
-	"github.com/gurupras/maxp2p/utils"
+	"github.com/gurupras/maxp2p/v2/test_utils"
+	"github.com/gurupras/maxp2p/v2/utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"

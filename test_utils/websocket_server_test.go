@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
-	"github.com/gurupras/maxp2p/types"
-	"github.com/gurupras/maxp2p/utils"
+	"github.com/gurupras/maxp2p/v2/types"
+	"github.com/gurupras/maxp2p/v2/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
