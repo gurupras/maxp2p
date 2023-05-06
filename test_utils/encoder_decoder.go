@@ -1,59 +1,26 @@
 package test_utils
 
 import (
-	"encoding/binary"
 	"io"
 
 	"github.com/gurupras/maxp2p/types"
+	"github.com/vmihailenco/msgpack"
 )
 
-type LengthSerDe struct{}
+type MsgpackSerDe struct{}
 
-type lengthEncoder struct {
-	io.Writer
-	lenBytes []byte
+func (m *MsgpackSerDe) Marshal(data interface{}) ([]byte, error) {
+	return msgpack.Marshal(data)
 }
 
-func (l *lengthEncoder) Encode(data interface{}) error {
-	b := data.([]byte)
-	binary.LittleEndian.PutUint64(l.lenBytes, uint64(len(b)))
-	_, err := l.Writer.Write(l.lenBytes)
-	if err != nil {
-		return err
-	}
-	_, err = l.Writer.Write(b)
-	return err
+func (m *MsgpackSerDe) Unmarshal(data []byte, v interface{}) error {
+	return msgpack.Unmarshal(data, v)
 }
 
-type lengthDecoder struct {
-	io.Reader
-	lenBytes []byte
+func (m *MsgpackSerDe) CreateEncoder(writer io.Writer) types.Encoder {
+	return msgpack.NewEncoder(writer)
 }
 
-func (l *lengthDecoder) Decode() (interface{}, error) {
-	_, err := io.ReadFull(l.Reader, l.lenBytes)
-	if err != nil {
-		return nil, err
-	}
-	n := int(binary.LittleEndian.Uint64(l.lenBytes))
-	buf := make([]byte, n)
-	_, err = io.ReadFull(l.Reader, buf)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-
-func (m *LengthSerDe) CreateEncoder(writer io.Writer, name string) types.Encoder {
-	return &lengthEncoder{
-		Writer:   writer,
-		lenBytes: make([]byte, 8),
-	}
-}
-
-func (m *LengthSerDe) CreateDecoder(reader io.Reader, name string) types.Decoder {
-	return &lengthDecoder{
-		Reader:   reader,
-		lenBytes: make([]byte, 8),
-	}
+func (m *MsgpackSerDe) CreateDecoder(reader io.Reader) types.Decoder {
+	return msgpack.NewDecoder(reader)
 }

@@ -5,12 +5,13 @@ go 1.19
 require (
 	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/gorilla/websocket v1.5.0
+	github.com/gurupras/go-fragmentedbuf v0.2.1
 	github.com/matoous/go-nanoid/v2 v2.0.0
 	github.com/pion/datachannel v1.5.5
 	github.com/pion/webrtc/v3 v3.1.55
 	github.com/pkg/profile v1.7.0
 	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
 )
 

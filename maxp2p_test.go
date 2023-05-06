@@ -1,6 +1,7 @@
 package maxp2p
 
 import (
+	"io"
 	"sync"
 	"testing"
 
@@ -9,8 +10,11 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"github.com/vmihailenco/msgpack"
 )
+
+type pkt struct {
+	Data interface{}
+}
 
 type maxP2PTest struct {
 	suite.Suite
@@ -58,8 +62,10 @@ func (m *maxP2PTest) SetupTest() {
 
 	n1 := &test_utils.MaxP2PTestNode{Node: m.p1}
 
-	var serde test_utils.LengthSerDe
-	m.maxp2p1, err = New(d1, d2, n1, &serde, m.config, 1*1024*1024)
+	var serde test_utils.MsgpackSerDe
+	m.maxp2p1, err = New(d1, d2, n1, &serde, func() interface{} {
+		return &pkt{}
+	}, m.config, 1*1024*1024)
 	require.Nil(err)
 
 	m.p1.OnOffer(func(src, connID string, offer *webrtc.SessionDescription) {
@@ -84,18 +90,15 @@ func (m *maxP2PTest) TearDownTest() {
 }
 
 func (m *maxP2PTest) TestStart() {
-	m.T().Skip()
+	// m.T().Skip()
 	require := require.New(m.T())
 
 	m.maxp2p1.Start()
 	require.Greater(len(m.maxp2p1.connections), 0)
 }
 
-func (m *maxP2PTest) TestWrite() {
-	m.T().Skip()
+func (m *maxP2PTest) testWrite(expected []byte) {
 	require := require.New(m.T())
-
-	expected := []byte("hello")
 
 	var read func() []byte
 
@@ -105,31 +108,36 @@ func (m *maxP2PTest) TestWrite() {
 		once := sync.Once{}
 		read = func() []byte {
 			var ret []byte
-			m.maxp2p2.OnData(func(data interface{}) {
+			m.maxp2p2.OnData(func(data interface{}, discard func()) {
 				once.Do(func() {
 					defer wg.Done()
-					ret = data.([]byte)
+					pkt := data.(*pkt)
+					ret = pkt.Data.([]byte)
+					discard()
 				})
 			})
 			wg.Wait()
 			return ret
 		}
 	} else {
-		dataChan := make(chan []byte)
+		serde := &test_utils.MsgpackSerDe{}
+		outChan := make(chan io.Reader)
+		chunkCombiner := NewChunkCombiner("pc", serde, outChan)
+
 		onPeerConnection := func(pc *webrtc.PeerConnection) {
 			pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 				dc.OnOpen(func() {
 					raw, err := dc.Detach()
 					require.Nil(err)
-					decoder := msgpack.NewDecoder(raw)
-					go func() {
-						b, err := decoder.DecodeBytes()
-						if err == nil {
-							dataChan <- b
-						}
-					}()
+
+					go chunkCombiner.AddReader(raw, "pc")
 					read = func() []byte {
-						return <-dataChan
+						reader := <-outChan
+						decoder := serde.CreateDecoder(reader)
+						pkt := &pkt{}
+						err = decoder.Decode(pkt)
+						require.Nil(err)
+						return pkt.Data.([]byte)
 					}
 				})
 			})
@@ -139,12 +147,24 @@ func (m *maxP2PTest) TestWrite() {
 
 	m.maxp2p1.Start()
 
-	err := m.maxp2p1.Send(expected)
+	pkt := &pkt{Data: expected}
+	err := m.maxp2p1.Send(pkt)
 	require.Nil(err)
 
 	got := read()
 
 	require.Equal(expected, got)
+}
+
+func (m *maxP2PTest) TestWriteSmall() {
+	// m.T().Skip()
+	m.testWrite([]byte("hello"))
+}
+
+func (m *maxP2PTest) TestWriteLarge() {
+	// m.T().Skip()
+	randString := test_utils.RandomString(128 * 1024)
+	m.testWrite([]byte(randString))
 }
 
 func (m *maxP2PTest) TestRead() {
@@ -160,6 +180,9 @@ func (m *maxP2PTest) TestRead() {
 	expected := []byte("hello")
 	var got []byte
 
+	writePktChan := make(chan *writePacket)
+	defer close(writePktChan)
+
 	onPeerConnection := func(pc *webrtc.PeerConnection) {
 		if m.maxp2p2 != nil {
 			once.Do(func() {
@@ -173,12 +196,21 @@ func (m *maxP2PTest) TestRead() {
 				dc.OnOpen(func() {
 					once.Do(func() {
 						defer wg.Done()
+						serde := &test_utils.MsgpackSerDe{}
 						combinedDC, err := utils.NewCombinedDC(dc, 1*1024*1024)
+						chunkSplitter := NewChunkSplitter("pc", MaxPacketSize-64, serde, writePktChan)
+						encoder := serde.CreateEncoder(combinedDC)
+						go func() {
+							for writePkt := range writePktChan {
+								err := encoder.Encode(writePkt.data)
+								writePkt.cb(writePkt, err)
+								require.Nil(err)
+							}
+						}()
 						require.Nil(err)
-						encoder := m.maxp2p1.encoderDecoder.CreateEncoder(combinedDC, combinedDC.Name)
+
 						send = func(v interface{}) error {
-							err = encoder.Encode(expected)
-							return err
+							return chunkSplitter.Encode(v)
 						}
 					})
 				})
@@ -200,12 +232,16 @@ func (m *maxP2PTest) TestRead() {
 	wg = sync.WaitGroup{}
 	wg.Add(1)
 
-	m.maxp2p1.OnData(func(data interface{}) {
+	m.maxp2p1.OnData(func(data interface{}, discard func()) {
 		defer wg.Done()
-		got = data.([]byte)
+		pkt := data.(*pkt)
+		got = pkt.Data.([]byte)
 	})
 
-	err = send(expected)
+	pkt := &pkt{
+		Data: expected,
+	}
+	err = send(pkt)
 	require.Nil(err)
 
 	wg.Wait()
@@ -231,8 +267,10 @@ func (m *maxP2PWithMaxP2P) SetupTest() {
 	// Make p2 into a maxP2P node
 	n2 := &test_utils.MaxP2PTestNode{Node: m.p2}
 
-	var serde test_utils.LengthSerDe
-	m.maxp2p2, err = New(m.p2.ID, m.p1.ID, n2, &serde, m.config, 1*1024*1024)
+	var serde test_utils.MsgpackSerDe
+	m.maxp2p2, err = New(m.p2.ID, m.p1.ID, n2, &serde, func() interface{} {
+		return &pkt{}
+	}, m.config, 1*1024*1024)
 	require.Nil(err)
 
 	m.p2.OnOffer(func(src, connID string, offer *webrtc.SessionDescription) {

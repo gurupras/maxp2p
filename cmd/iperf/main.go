@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/rand"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/alecthomas/kingpin"
 	"github.com/gurupras/maxp2p"
 	"github.com/gurupras/maxp2p/test_utils"
-	"github.com/gurupras/maxp2p/types"
 	"github.com/pion/webrtc/v3"
 	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
@@ -34,31 +32,6 @@ var (
 	packetSize     = client.Flag("packet-size", "Per-packet size (3 bytes will be used for headers)").Default("4096").Int()
 	duration       = client.Flag("duration", "Duration in seconds to transmit").Short('d').Default("10").Float64()
 )
-
-type serde struct {
-	*test_utils.LengthSerDe
-}
-type plainEncoder struct {
-	io.Writer
-}
-
-func (s *serde) CreateEncoder(writer io.Writer) types.Encoder {
-	return &plainEncoder{Writer: writer}
-}
-
-func (p *plainEncoder) Encode(v interface{}) error {
-	b, ok := v.([]byte)
-	if !ok {
-		log.Fatalf("Failed to convert interface to []byte")
-	}
-	_, err := p.Write(b)
-	if err != nil {
-		log.Fatalf("Error while encoding data: %v", err)
-	} else {
-		log.Debugf("Wrote %v bytes", len(b))
-	}
-	return err
-}
 
 // Mostly taken from https://github.com/dustin/go-humanize/blob/master/bytes.go
 func Bytes(size float64) string {
@@ -107,7 +80,7 @@ func main() {
 	go node.HandleServerMessages()
 	mNode := test_utils.MaxP2PTestNode{Node: node}
 
-	var serde test_utils.LengthSerDe
+	var serde test_utils.MsgpackSerDe
 
 	mp2p, err := maxp2p.New(*name, peer, &mNode, &serde, config, 100*1024*1024)
 	if err != nil {

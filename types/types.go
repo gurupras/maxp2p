@@ -1,6 +1,8 @@
 package types
 
 import (
+	"io"
+
 	"github.com/pion/webrtc/v3"
 )
 
@@ -31,10 +33,48 @@ type P2POperations interface {
 	OnAnswer(id string, answer *webrtc.SessionDescription) error
 }
 
-type Decoder interface {
-	Decode() (any, error)
+type Marshaler interface {
+	Marshal(v interface{}) ([]byte, error)
+}
+
+type Unmarshaler interface {
+	Unmarshal([]byte, interface{}) error
 }
 
 type Encoder interface {
 	Encode(interface{}) error
+}
+
+type Decoder interface {
+	Decode(interface{}) error
+}
+
+type CreateEncoder interface {
+	CreateEncoder(io.Writer) Encoder
+}
+
+type CreateDecoder interface {
+	CreateDecoder(io.Reader) Decoder
+}
+
+type Serializer interface {
+	CreateEncoder
+	Marshaler
+}
+
+type Deserializer interface {
+	CreateDecoder
+	Unmarshaler
+}
+
+type SerDe interface {
+	Serializer
+	Deserializer
+}
+
+type Chunk struct {
+	ID   uint64
+	Seq  uint64
+	End  bool
+	Data []byte
 }

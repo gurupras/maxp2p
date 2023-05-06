@@ -35,17 +35,13 @@ type IncomingSignalInterface interface {
 	OnICECandidate(src string, connID string, candidate *webrtc.ICECandidate) error
 }
 
-type EncoderDecoder interface {
-	CreateDecoder(io.Reader, string) types.Decoder
-	CreateEncoder(io.Writer, string) types.Encoder
-}
-
 type MaxP2P struct {
 	sync.Mutex
 	name                     string
 	peer                     string
 	iface                    SendInterface
-	encoderDecoder           EncoderDecoder
+	serde                    types.SerDe
+	packetPool               *sync.Pool
 	connections              map[string]*P2PConn
 	unestablishedConnections map[string]*webrtc.PeerConnection
 	pendingCandidates        map[string][]*webrtc.ICECandidate
@@ -53,13 +49,12 @@ type MaxP2P struct {
 	config                   webrtc.Configuration
 	maxBufferSize            uint64
 	writeChan                chan *writePacket
-	writePacketPool          *sync.Pool
-	writeResultPool          *sync.Pool
-	writeCallbackPool        *sync.Pool
-	readChan                 chan []byte
+	chunkSplitter            *ChunkSplitter
+	chunkCombiner            *ChunkCombiner
+	incomingDataChan         chan io.Reader
 	connID                   uint32
 	stopped                  bool
-	onData                   func(data interface{})
+	onData                   func(data interface{}, discard func())
 	onPeerConnection         func(*webrtc.PeerConnection)
 }
 
@@ -67,7 +62,7 @@ type P2PConn struct {
 	pc *webrtc.PeerConnection
 	sync.Mutex
 	combinedDC *utils.CombinedDC
-	onData     func(data interface{})
+	onData     func(data interface{}, discard func())
 }
 
 func (p *P2PConn) Close() error {
@@ -75,36 +70,24 @@ func (p *P2PConn) Close() error {
 	return p.pc.Close()
 }
 
+type writePacketCallback func(writePkt *writePacket, err error)
+
 type writePacket struct {
 	data interface{}
-	raw  bool
-	ch   chan *writeResult
+	cb   writePacketCallback
 }
 
-type writeResult struct {
-	error error
-}
-
-func New(name string, peer string, iface SendInterface, encoderDecoder EncoderDecoder, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
+func New(name string, peer string, iface SendInterface, serde types.SerDe, createPacket func() interface{}, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
 	settings := webrtc.SettingEngine{}
 	settings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 
-	writeCallbackPool := &sync.Pool{
-		New: func() any {
-			return make(chan *writeResult)
-		},
-	}
+	writeChan := make(chan *writePacket, 1000)
+	incomingDataChan := make(chan io.Reader, 100)
 
-	writePacketPool := &sync.Pool{
+	packetPool := &sync.Pool{
 		New: func() any {
-			return &writePacket{}
-		},
-	}
-
-	writeResultPool := &sync.Pool{
-		New: func() any {
-			return &writeResult{}
+			return createPacket()
 		},
 	}
 
@@ -113,27 +96,52 @@ func New(name string, peer string, iface SendInterface, encoderDecoder EncoderDe
 		name:                     name,
 		peer:                     peer,
 		iface:                    iface,
-		encoderDecoder:           encoderDecoder,
+		serde:                    serde,
+		packetPool:               packetPool,
 		api:                      api,
 		config:                   config,
 		connections:              make(map[string]*P2PConn),
 		unestablishedConnections: make(map[string]*webrtc.PeerConnection),
 		pendingCandidates:        make(map[string][]*webrtc.ICECandidate),
 		maxBufferSize:            maxBufferSize,
-		writeChan:                make(chan *writePacket, 1000),
-		writeCallbackPool:        writeCallbackPool,
-		writePacketPool:          writePacketPool,
-		writeResultPool:          writeResultPool,
+		writeChan:                writeChan,
+		chunkSplitter:            NewChunkSplitter(name, MaxPacketSize-64, serde, writeChan),
+		chunkCombiner:            NewChunkCombiner(name, serde, incomingDataChan),
+		incomingDataChan:         incomingDataChan,
 		connID:                   0,
 		stopped:                  false,
 	}
+
+	go ret.handleIncomingData()
 	return ret, nil
+}
+
+func (m *MaxP2P) handleIncomingData() {
+	for reader := range m.incomingDataChan {
+		packetDecoder := m.serde.CreateDecoder(reader)
+		pkt := m.packetPool.Get()
+		err := packetDecoder.Decode(&pkt)
+		if err != nil {
+			log.Errorf("[%v]: Failed to decode incoming packet: %v", m.name, err)
+			return
+		} else {
+			m.Lock()
+			onData := m.onData
+			m.Unlock()
+			if onData != nil {
+				onData(pkt, func() {
+					m.packetPool.Put(pkt)
+				})
+			}
+
+		}
+	}
 }
 
 func (m *MaxP2P) Start(connections ...int) error {
 	// We need at least one connection to be able to send/receive data
 	// FIXME: Until bandwidth-based scaling is implemented, default to creating 30 connections and multiplexing these
-	numConnections := 30
+	numConnections := 8
 	if len(connections) != 0 {
 		numConnections = connections[0]
 	}
@@ -162,13 +170,14 @@ func (m *MaxP2P) Close() error {
 	defer m.Unlock()
 	m.stopped = true
 	close(m.writeChan)
+	m.chunkCombiner.Close()
 	for _, conn := range m.connections {
 		conn.Close()
 	}
 	return nil
 }
 
-func (m *MaxP2P) OnData(cb func(data interface{})) {
+func (m *MaxP2P) OnData(cb func(data interface{}, discard func())) {
 	m.Lock()
 	defer m.Unlock()
 	m.onData = cb
@@ -424,73 +433,22 @@ func (m *MaxP2P) AddConnection(connID string, conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleWrites(conn *P2PConn) {
-	encoder := m.encoderDecoder.CreateEncoder(conn.combinedDC, conn.combinedDC.Name)
-	for pkt := range m.writeChan {
-		var err error
-		if pkt.raw {
-			b := pkt.data.([]byte)
-			_, err = conn.combinedDC.Write(b)
-			// log.Debugf("Wrote bytes: %v", len(b))
-		} else {
-			err = encoder.Encode(pkt.data)
-		}
-		_ = err
-		// if err == nil {
-		// // Deal with packets > MaxPacketSize
-		// total := len(b)
-		// for sent < total {
-		// 	remaining := total - sent
-		// 	chunkSize := int(math.Min(float64(MaxPacketSize), float64(remaining)))
-		// 	var n int
-		// 	n, err = conn.Write(b[sent : sent+chunkSize])
-		// 	sent += n
-		// 	if err != nil {
-		// 		break
-		// 	}
-		// }
-		// }
-
-		// res := m.writeResultPool.Get().(*writeResult)
-		// res.error = err
-		// pkt.ch <- res
+	encoder := m.serde.CreateEncoder(conn.combinedDC)
+	for writePkt := range m.writeChan {
+		err := encoder.Encode(writePkt.data)
+		writePkt.cb(writePkt, err)
 	}
 }
 
 func (m *MaxP2P) handleReads(conn *P2PConn) error {
-	decoder := m.encoderDecoder.CreateDecoder(conn.combinedDC, conn.combinedDC.Name)
-	for {
-		data, err := decoder.Decode()
-		if err != nil {
-			log.Errorf("Error: %v", err)
-			return err
-		}
-		conn.Lock()
-		onData := m.onData
-		conn.Unlock()
-		if onData != nil {
-			onData(data)
-		}
-	}
+	err := m.chunkCombiner.AddReader(conn.combinedDC, fmt.Sprintf("combiner-%v", conn.combinedDC.Name))
+	return err
 }
 
 func (m *MaxP2P) Send(data interface{}) error {
-	return m._send(data, false)
+	return m._send(data)
 }
 
-func (m *MaxP2P) SendRaw(data interface{}) error {
-	return m._send(data, true)
-}
-
-func (m *MaxP2P) _send(data interface{}, raw bool) error {
-	var err error
-	pkt := m.writePacketPool.Get().(*writePacket)
-	pkt.data = data
-	pkt.raw = raw
-	// pkt.ch = m.writeCallbackPool.Get().(chan *writeResult)
-	// defer m.writeCallbackPool.Put(pkt.ch)
-	m.writeChan <- pkt
-	// res := <-pkt.ch
-	// err = res.error
-	// defer m.writeResultPool.Put(res)
-	return err
+func (m *MaxP2P) _send(data interface{}) error {
+	return m.chunkSplitter.Encode(data)
 }
