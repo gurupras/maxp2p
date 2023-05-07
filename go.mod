@@ -23,6 +23,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/pprof v0.0.0-20211214055906-6f57359322fd // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/gurupras/go-network v0.2.0 // indirect
 	github.com/pion/dtls/v2 v2.2.6 // indirect
 	github.com/pion/ice/v2 v2.3.0 // indirect
 	github.com/pion/interceptor v0.1.12 // indirect

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gurupras/go-network"
 	"github.com/gurupras/maxp2p/v2/test_utils"
 	"github.com/gurupras/maxp2p/v2/utils"
 	"github.com/pion/webrtc/v3"
@@ -101,6 +102,7 @@ func (m *maxP2PTest) testWrite(expected []byte) {
 	require := require.New(m.T())
 
 	var read func() []byte
+	readReadyChan := make(chan struct{}, 1)
 
 	if m.maxp2p2 != nil {
 		wg := sync.WaitGroup{}
@@ -119,10 +121,11 @@ func (m *maxP2PTest) testWrite(expected []byte) {
 			wg.Wait()
 			return ret
 		}
+		readReadyChan <- struct{}{}
 	} else {
 		serde := &test_utils.MsgpackSerDe{}
 		outChan := make(chan io.Reader)
-		chunkCombiner := NewChunkCombiner("pc", serde, outChan)
+		chunkCombiner := network.NewChunkCombiner("pc", serde, outChan)
 
 		onPeerConnection := func(pc *webrtc.PeerConnection) {
 			pc.OnDataChannel(func(dc *webrtc.DataChannel) {
@@ -139,6 +142,7 @@ func (m *maxP2PTest) testWrite(expected []byte) {
 						require.Nil(err)
 						return pkt.Data.([]byte)
 					}
+					readReadyChan <- struct{}{}
 				})
 			})
 		}
@@ -151,6 +155,7 @@ func (m *maxP2PTest) testWrite(expected []byte) {
 	err := m.maxp2p1.Send(pkt)
 	require.Nil(err)
 
+	<-readReadyChan
 	got := read()
 
 	require.Equal(expected, got)
@@ -176,11 +181,12 @@ func (m *maxP2PTest) TestRead() {
 	once := sync.Once{}
 
 	var send func(v interface{}) error
+	sendReadyChan := make(chan struct{}, 1)
 
 	expected := []byte("hello")
 	var got []byte
 
-	writePktChan := make(chan *writePacket)
+	writePktChan := make(chan network.WritePacket)
 	defer close(writePktChan)
 
 	onPeerConnection := func(pc *webrtc.PeerConnection) {
@@ -190,6 +196,7 @@ func (m *maxP2PTest) TestRead() {
 				send = func(v interface{}) error {
 					return m.maxp2p2.Send(v)
 				}
+				sendReadyChan <- struct{}{}
 			})
 		} else {
 			pc.OnDataChannel(func(dc *webrtc.DataChannel) {
@@ -198,12 +205,12 @@ func (m *maxP2PTest) TestRead() {
 						defer wg.Done()
 						serde := &test_utils.MsgpackSerDe{}
 						combinedDC, err := utils.NewCombinedDC(dc, 1*1024*1024)
-						chunkSplitter := NewChunkSplitter("pc", MaxPacketSize-64, serde, writePktChan)
+						chunkSplitter := network.NewChunkSplitter("pc", MaxPacketSize-64, serde, func() network.WritePacket { return &writePacket{} }, writePktChan)
 						encoder := serde.CreateEncoder(combinedDC)
 						go func() {
 							for writePkt := range writePktChan {
-								err := encoder.Encode(writePkt.data)
-								writePkt.cb(writePkt, err)
+								err := encoder.Encode(writePkt.GetData())
+								writePkt.GetCallback()(writePkt, err)
 								require.Nil(err)
 							}
 						}()
@@ -212,6 +219,7 @@ func (m *maxP2PTest) TestRead() {
 						send = func(v interface{}) error {
 							return chunkSplitter.Encode(v)
 						}
+						sendReadyChan <- struct{}{}
 					})
 				})
 			})
@@ -237,6 +245,8 @@ func (m *maxP2PTest) TestRead() {
 		pkt := data.(*pkt)
 		got = pkt.Data.([]byte)
 	})
+
+	<-sendReadyChan
 
 	pkt := &pkt{
 		Data: expected,

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gurupras/maxp2p/v2/types"
+	"github.com/gurupras/go-network"
 	"github.com/gurupras/maxp2p/v2/utils"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
@@ -40,7 +40,7 @@ type MaxP2P struct {
 	name                     string
 	peer                     string
 	iface                    SendInterface
-	serde                    types.SerDe
+	serde                    network.SerDe
 	packetPool               *sync.Pool
 	connections              map[string]*P2PConn
 	unestablishedConnections map[string]*webrtc.PeerConnection
@@ -48,9 +48,9 @@ type MaxP2P struct {
 	api                      *webrtc.API
 	config                   webrtc.Configuration
 	maxBufferSize            uint64
-	writeChan                chan *writePacket
-	chunkSplitter            *ChunkSplitter
-	chunkCombiner            *ChunkCombiner
+	writeChan                chan network.WritePacket
+	chunkSplitter            *network.ChunkSplitter
+	chunkCombiner            *network.ChunkCombiner
 	incomingDataChan         chan io.Reader
 	connID                   uint32
 	stopped                  bool
@@ -70,19 +70,33 @@ func (p *P2PConn) Close() error {
 	return p.pc.Close()
 }
 
-type writePacketCallback func(writePkt *writePacket, err error)
-
 type writePacket struct {
 	data interface{}
-	cb   writePacketCallback
+	cb   network.WritePacketCallback
 }
 
-func New(name string, peer string, iface SendInterface, serde types.SerDe, createPacket func() interface{}, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
+func (w *writePacket) SetData(data interface{}) {
+	w.data = data
+}
+
+func (w *writePacket) GetData() interface{} {
+	return w.data
+}
+
+func (w *writePacket) SetCallback(cb network.WritePacketCallback) {
+	w.cb = cb
+}
+
+func (w *writePacket) GetCallback() network.WritePacketCallback {
+	return w.cb
+}
+
+func New(name string, peer string, iface SendInterface, serde network.SerDe, createPacket func() interface{}, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
 	settings := webrtc.SettingEngine{}
 	settings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 
-	writeChan := make(chan *writePacket, 1000)
+	writeChan := make(chan network.WritePacket, 1000)
 	incomingDataChan := make(chan io.Reader, 100)
 
 	packetPool := &sync.Pool{
@@ -105,8 +119,8 @@ func New(name string, peer string, iface SendInterface, serde types.SerDe, creat
 		pendingCandidates:        make(map[string][]*webrtc.ICECandidate),
 		maxBufferSize:            maxBufferSize,
 		writeChan:                writeChan,
-		chunkSplitter:            NewChunkSplitter(name, MaxPacketSize-64, serde, writeChan),
-		chunkCombiner:            NewChunkCombiner(name, serde, incomingDataChan),
+		chunkSplitter:            network.NewChunkSplitter(name, MaxPacketSize-64, serde, func() network.WritePacket { return &writePacket{} }, writeChan),
+		chunkCombiner:            network.NewChunkCombiner(name, serde, incomingDataChan),
 		incomingDataChan:         incomingDataChan,
 		connID:                   0,
 		stopped:                  false,
@@ -141,7 +155,7 @@ func (m *MaxP2P) handleIncomingData() {
 func (m *MaxP2P) Start(connections ...int) error {
 	// We need at least one connection to be able to send/receive data
 	// FIXME: Until bandwidth-based scaling is implemented, default to creating 30 connections and multiplexing these
-	numConnections := 8
+	numConnections := 1
 	if len(connections) != 0 {
 		numConnections = connections[0]
 	}
@@ -435,8 +449,8 @@ func (m *MaxP2P) AddConnection(connID string, conn *P2PConn) {
 func (m *MaxP2P) handleWrites(conn *P2PConn) {
 	encoder := m.serde.CreateEncoder(conn.combinedDC)
 	for writePkt := range m.writeChan {
-		err := encoder.Encode(writePkt.data)
-		writePkt.cb(writePkt, err)
+		err := encoder.Encode(writePkt.GetData())
+		writePkt.GetCallback()(writePkt, err)
 	}
 }
 
