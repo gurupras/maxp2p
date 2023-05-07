@@ -15,6 +15,7 @@ type ChunkSplitter struct {
 	outChan         chan<- *writePacket
 	writePacketPool *sync.Pool
 	packetIdx       uint64
+	mutex           sync.Mutex
 }
 
 func NewChunkSplitter(name string, maxPacketSize int, marshaler types.Marshaler, outChan chan<- *writePacket) *ChunkSplitter {
@@ -31,6 +32,7 @@ func NewChunkSplitter(name string, maxPacketSize int, marshaler types.Marshaler,
 		outChan:         outChan,
 		writePacketPool: writePacketPool,
 		packetIdx:       0,
+		mutex:           sync.Mutex{},
 	}
 }
 
@@ -40,8 +42,13 @@ func (c *ChunkSplitter) Encode(v interface{}) error {
 		return err
 	}
 	numChunks := int(math.Ceil(float64(len(encodedBytes)) / float64(c.MaxPacketSize)))
-	packetID := c.packetIdx
-	c.packetIdx += 1
+	var packetID uint64
+	func() {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+		packetID = c.packetIdx
+		c.packetIdx++
+	}()
 	written := 0
 
 	wg := sync.WaitGroup{}
