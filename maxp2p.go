@@ -49,6 +49,8 @@ type MaxP2P struct {
 	config                   webrtc.Configuration
 	maxBufferSize            uint64
 	writeChan                chan network.WritePacket
+	serialWriteChan          chan network.WritePacket
+	handleSerialWrites       sync.Once
 	chunkSplitter            *network.ChunkSplitter
 	chunkCombiner            *network.ChunkCombiner
 	incomingDataChan         chan io.Reader
@@ -76,6 +78,7 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 
 	writeChan := make(chan network.WritePacket, 1000)
+	serialWriteChan := make(chan network.WritePacket, 1000)
 	incomingDataChan := make(chan io.Reader, 100)
 
 	packetPool := &sync.Pool{
@@ -98,6 +101,8 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 		pendingCandidates:        make(map[string][]*webrtc.ICECandidate),
 		maxBufferSize:            maxBufferSize,
 		writeChan:                writeChan,
+		serialWriteChan:          serialWriteChan,
+		handleSerialWrites:       sync.Once{},
 		chunkSplitter:            network.NewChunkSplitter(name, MaxPacketSize-64, serde, writeChan),
 		chunkCombiner:            network.NewChunkCombiner(name, serde, incomingDataChan),
 		incomingDataChan:         incomingDataChan,
@@ -163,6 +168,7 @@ func (m *MaxP2P) Close() error {
 	defer m.Unlock()
 	m.stopped = true
 	close(m.writeChan)
+	close(m.serialWriteChan)
 	m.chunkCombiner.Close()
 	for _, conn := range m.connections {
 		conn.Close()
@@ -427,9 +433,36 @@ func (m *MaxP2P) AddConnection(connID string, conn *P2PConn) {
 
 func (m *MaxP2P) handleWrites(conn *P2PConn) {
 	encoder := m.serde.CreateEncoder(conn.combinedDC)
-	for writePkt := range m.writeChan {
+
+	globalWriteChan := m.writeChan
+	var serialWriteChan chan network.WritePacket
+	m.handleSerialWrites.Do(func() {
+		serialWriteChan = m.serialWriteChan
+	})
+
+	encode := func(writePkt network.WritePacket) {
 		err := encoder.Encode(writePkt.GetData())
 		writePkt.GetCallback()(writePkt, err)
+	}
+
+	for {
+		select {
+		case writePkt, ok := <-globalWriteChan:
+			if !ok {
+				globalWriteChan = nil
+				continue
+			}
+			encode(writePkt)
+		case writePkt, ok := <-serialWriteChan:
+			if !ok {
+				serialWriteChan = nil
+				continue
+			}
+			encode(writePkt)
+		}
+		if globalWriteChan == nil && serialWriteChan == nil {
+			break
+		}
 	}
 }
 
@@ -440,6 +473,10 @@ func (m *MaxP2P) handleReads(conn *P2PConn) error {
 
 func (m *MaxP2P) Send(data interface{}) error {
 	return m._send(data)
+}
+
+func (m *MaxP2P) SendSerial(data interface{}) error {
+	return m.chunkSplitter.SplitToChannel(data, m.serialWriteChan)
 }
 
 func (m *MaxP2P) _send(data interface{}) error {
