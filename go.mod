@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/gorilla/websocket v1.5.0
-	github.com/gurupras/go-fragmentedbuf v0.2.1
+	github.com/gurupras/go-network v0.3.0
 	github.com/matoous/go-nanoid/v2 v2.0.0
 	github.com/pion/datachannel v1.5.5
 	github.com/pion/webrtc/v3 v3.1.55
@@ -23,7 +23,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/pprof v0.0.0-20211214055906-6f57359322fd // indirect
 	github.com/google/uuid v1.3.0 // indirect
-	github.com/gurupras/go-network v0.2.0 // indirect
+	github.com/gurupras/go-fragmentedbuf v0.2.1 // indirect
 	github.com/pion/dtls/v2 v2.2.6 // indirect
 	github.com/pion/ice/v2 v2.3.0 // indirect
 	github.com/pion/interceptor v0.1.12 // indirect

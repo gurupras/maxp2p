@@ -205,7 +205,7 @@ func (m *maxP2PTest) TestRead() {
 						defer wg.Done()
 						serde := &test_utils.MsgpackSerDe{}
 						combinedDC, err := utils.NewCombinedDC(dc, 1*1024*1024)
-						chunkSplitter := network.NewChunkSplitter("pc", MaxPacketSize-64, serde, func() network.WritePacket { return &writePacket{} }, writePktChan)
+						chunkSplitter := network.NewChunkSplitter("pc", MaxPacketSize-64, serde, writePktChan)
 						encoder := serde.CreateEncoder(combinedDC)
 						go func() {
 							for writePkt := range writePktChan {

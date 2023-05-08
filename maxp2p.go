@@ -70,27 +70,6 @@ func (p *P2PConn) Close() error {
 	return p.pc.Close()
 }
 
-type writePacket struct {
-	data interface{}
-	cb   network.WritePacketCallback
-}
-
-func (w *writePacket) SetData(data interface{}) {
-	w.data = data
-}
-
-func (w *writePacket) GetData() interface{} {
-	return w.data
-}
-
-func (w *writePacket) SetCallback(cb network.WritePacketCallback) {
-	w.cb = cb
-}
-
-func (w *writePacket) GetCallback() network.WritePacketCallback {
-	return w.cb
-}
-
 func New(name string, peer string, iface SendInterface, serde network.SerDe, createPacket func() interface{}, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
 	settings := webrtc.SettingEngine{}
 	settings.DetachDataChannels()
@@ -119,7 +98,7 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 		pendingCandidates:        make(map[string][]*webrtc.ICECandidate),
 		maxBufferSize:            maxBufferSize,
 		writeChan:                writeChan,
-		chunkSplitter:            network.NewChunkSplitter(name, MaxPacketSize-64, serde, func() network.WritePacket { return &writePacket{} }, writeChan),
+		chunkSplitter:            network.NewChunkSplitter(name, MaxPacketSize-64, serde, writeChan),
 		chunkCombiner:            network.NewChunkCombiner(name, serde, incomingDataChan),
 		incomingDataChan:         incomingDataChan,
 		connID:                   0,
