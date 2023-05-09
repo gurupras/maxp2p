@@ -116,11 +116,15 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 
 func (m *MaxP2P) handleIncomingData() {
 	for reader := range m.incomingDataChan {
-		packetDecoder := m.serde.CreateDecoder(reader)
-		pkt := m.packetPool.Get()
-		err := packetDecoder.Decode(&pkt)
+		data, err := io.ReadAll(reader)
 		if err != nil {
-			log.Errorf("[%v]: Failed to decode incoming packet: %v", m.name, err)
+			log.Errorf("[%v]: Failed to read incoming packet: %v", m.name, err)
+			return
+		}
+		pkt := m.packetPool.Get()
+		err = m.serde.Unmarshal(data, &pkt)
+		if err != nil {
+			log.Errorf("[%v]: Failed to unmarshal incoming packet: %v", m.name, err)
 			return
 		} else {
 			m.Lock()
