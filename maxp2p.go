@@ -77,9 +77,9 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 	settings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 
-	writeChan := make(chan network.WritePacket, 1000)
-	serialWriteChan := make(chan network.WritePacket, 1000)
-	incomingDataChan := make(chan io.Reader, 100)
+	writeChan := make(chan network.WritePacket, 10)
+	serialWriteChan := make(chan network.WritePacket, 10)
+	incomingDataChan := make(chan io.Reader, 10)
 
 	packetPool := &sync.Pool{
 		New: func() any {
