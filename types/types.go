@@ -5,9 +5,9 @@ import (
 )
 
 type Packet struct {
-	ConnectionID string      `json:"connectionID"`
-	Type         PacketType  `json:"type"`
-	Data         interface{} `json:"data"`
+	ConnectionID string     `json:"connectionID"`
+	Type         PacketType `json:"type"`
+	Data         string     `json:"data"`
 }
 
 type SignalPacket struct {
@@ -20,7 +20,6 @@ type PacketType string
 
 const (
 	CandidatePacketType PacketType = "candidate"
-	OfferPacketType     PacketType = "offer"
 	SDPPacketType       PacketType = "sdp"
 )
 

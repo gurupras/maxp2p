@@ -471,7 +471,7 @@ func (m *MaxP2P) handleWrites(conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleReads(conn *P2PConn) error {
-	err := m.chunkCombiner.AddReader(conn.combinedDC, fmt.Sprintf("combiner-%v", conn.combinedDC.Name))
+	err := m.chunkCombiner.AddReader(conn.combinedDC, fmt.Sprintf("combiner-%v-%v", m.name, conn.combinedDC.Name))
 	return err
 }
 

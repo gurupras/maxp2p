@@ -93,11 +93,12 @@ func main() {
 		log.Fatalf("Failed to create maxp2p: %v", err)
 	}
 
-	node.OnOffer(func(src, connID string, offer *webrtc.SessionDescription) {
-		mp2p.OnOffer(src, connID, offer)
-	})
 	node.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		mp2p.OnAnswer(connID, sdp)
+		if sdp.Type == webrtc.SDPTypeOffer {
+			mp2p.OnOffer(src, connID, sdp)
+		} else {
+			mp2p.OnAnswer(connID, sdp)
+		}
 	})
 	node.OnICECandidate(func(src, connID string, c *webrtc.ICECandidateInit) {
 		mp2p.OnICECandidate(connID, c)

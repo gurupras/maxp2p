@@ -58,11 +58,12 @@ func NewServerConnection(deviceID, urlStr string) (*ServerConnection, error) {
 func (s *ServerConnection) SendCandidate(peer string, connID string, c *webrtc.ICECandidate) error {
 	s.Lock()
 	defer s.Unlock()
+	b, _ := json.Marshal(c.ToJSON())
 	pkt := &types.SignalPacket{
 		Packet: &types.Packet{
 			ConnectionID: connID,
 			Type:         types.CandidatePacketType,
-			Data:         c.ToJSON().Candidate,
+			Data:         string(b),
 		},
 		Src:  s.deviceID,
 		Dest: peer,
@@ -75,21 +76,17 @@ func (s *ServerConnection) SendCandidate(peer string, connID string, c *webrtc.I
 }
 
 func (s *ServerConnection) SendOffer(peer string, connID string, sdp *webrtc.SessionDescription) error {
-	return s.SendSDP(peer, connID, sdp, types.OfferPacketType)
+	return s.SendSDP(peer, connID, sdp)
 }
 
-func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.SessionDescription, _packetType ...types.PacketType) error {
-	packetType := types.SDPPacketType
-	if len(_packetType) > 0 {
-		packetType = _packetType[0]
-	}
+func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.SessionDescription) error {
 	s.Lock()
 	defer s.Unlock()
 	b, _ := json.Marshal(sdp)
 	pkt := &types.SignalPacket{
 		Packet: &types.Packet{
 			ConnectionID: connID,
-			Type:         packetType,
+			Type:         types.SDPPacketType,
 			Data:         string(b),
 		},
 		Src:  s.deviceID,
@@ -97,7 +94,7 @@ func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.Sessi
 	}
 	err := s.WriteJSON(pkt)
 	if err == nil {
-		log.Debugf("[%v]: Sent SDP for connection with id '%v' to peer '%v' (type=%v): %v", s.deviceID, connID, peer, packetType, string(b))
+		log.Debugf("[%v]: Sent SDP for connection with id '%v' to peer '%v' (type=%v): %v", s.deviceID, connID, peer, sdp.Type, string(b))
 	}
 	return err
 }

@@ -69,14 +69,15 @@ func (m *maxP2PTest) SetupTest() {
 	}, m.config, 1*1024*1024)
 	require.Nil(err)
 
-	m.p1.OnOffer(func(src, connID string, offer *webrtc.SessionDescription) {
-		m.maxp2p1.OnOffer(src, connID, offer)
-	})
 	m.p1.OnICECandidate(func(src, connID string, c *webrtc.ICECandidateInit) {
 		m.maxp2p1.OnICECandidate(connID, c)
 	})
 	m.p1.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		m.maxp2p1.OnAnswer(connID, sdp)
+		if sdp.Type == webrtc.SDPTypeOffer {
+			m.maxp2p1.OnOffer(src, connID, sdp)
+		} else {
+			m.maxp2p1.OnAnswer(connID, sdp)
+		}
 	})
 }
 
@@ -283,14 +284,15 @@ func (m *maxP2PWithMaxP2P) SetupTest() {
 	}, m.config, 1*1024*1024)
 	require.Nil(err)
 
-	m.p2.OnOffer(func(src, connID string, offer *webrtc.SessionDescription) {
-		m.maxp2p2.OnOffer(src, connID, offer)
-	})
 	m.p2.OnICECandidate(func(src, connID string, c *webrtc.ICECandidateInit) {
 		m.maxp2p2.OnICECandidate(connID, c)
 	})
 	m.p2.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		m.maxp2p2.OnAnswer(connID, sdp)
+		if sdp.Type == webrtc.SDPTypeOffer {
+			m.maxp2p2.OnOffer(src, connID, sdp)
+		} else {
+			m.maxp2p2.OnAnswer(connID, sdp)
+		}
 	})
 }
 

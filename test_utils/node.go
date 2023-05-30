@@ -30,7 +30,6 @@ type Node struct {
 	WaitGroup         sync.WaitGroup
 	onError           func(error)
 	onPeerConnection  func(*webrtc.PeerConnection)
-	onOffer           func(src string, connID string, offer *webrtc.SessionDescription)
 	onSDP             func(src string, connID string, sdp *webrtc.SessionDescription)
 	onICECandidate    func(src string, connID string, c *webrtc.ICECandidateInit)
 }
@@ -176,107 +175,18 @@ func (n *Node) HandleServerMessages() {
 			break
 		}
 		log.Debugf("[%v]: Received packet: %v\n", n.ID, m)
-
 		packetType := types.PacketType(m["type"].(string))
 		src := m["src"].(string)
 		connID := m["connectionID"].(string)
 		switch packetType {
-		case types.OfferPacketType:
-			{
-				sdpBytes := []byte(m["data"].(string))
-				sdp, err := ParseSDP(sdpBytes)
-				if err != nil {
-					log.Errorf("[%v]: Failed to parse SDP in offer packet from peer '%v': %v", n.ID, src, err)
-					break
-				}
-				if n.onOffer != nil {
-					n.onOffer(src, connID, sdp)
-				} else {
-					pc, err := n.api.NewPeerConnection(*n.config)
-					if err != nil {
-						log.Errorf("[%v]: Failed to set up new peer-connection: %v", n.ID, err)
-						break
-					}
-					var connCallback func(*webrtc.PeerConnection)
-					func() {
-						n.Lock()
-						defer n.Unlock()
-						connCallback = n.onPeerConnection
-						n.connections[connID] = &PeerConnection{
-							UUID:           connID,
-							PeerConnection: pc,
-						}
-					}()
-
-					answerSent := uint32(0)
-					pending := make([]*webrtc.ICECandidate, 0)
-
-					pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-						if c == nil {
-							return
-						}
-						if atomic.LoadUint32(&answerSent) == 1 {
-							if err := n.SendCandidate(src, connID, c); err != nil {
-
-							}
-						} else {
-							pending = append(pending, c)
-						}
-					})
-					pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
-						log.Debugf("[%v]: Connection state for connection with id '%v' to peer '%v' has changed: %s\n", n.ID, connID, src, s.String())
-
-						if s == webrtc.PeerConnectionStateFailed {
-							// Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
-							// Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
-							// Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
-							log.Errorf("[%v]: Peer Connection has gone to failed.. stopping transfer\n", n.ID)
-						}
-					})
-
-					if connCallback != nil {
-						connCallback(pc)
-					}
-					err = pc.SetRemoteDescription(*sdp)
-					if err != nil {
-						log.Errorf("[%v]: Failed to set remote description with offer from peer '%v': %v", n.ID, src, err)
-						break
-					}
-					answer, err := pc.CreateAnswer(nil)
-					if err != nil {
-						log.Errorf("[%v]: Failed to create answer for offer from peer '%v': %v", n.ID, src, err)
-						break
-					}
-					go func() {
-						answerGatheringComplete := webrtc.GatheringCompletePromise(pc)
-						if err := pc.SetLocalDescription(answer); err != nil {
-							log.Errorf("[%v]: Failed to set answer as local description for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
-							return
-						}
-						<-answerGatheringComplete
-						log.Debugf("[%v]: Gathering complete for connection with id '%v' from peer '%v'", n.ID, connID, src)
-
-						// TODO: Send answer
-						if err := n.SendSDP(src, connID, &answer); err != nil {
-							log.Errorf("[%v]: Failed to send answer for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
-							return
-						}
-						atomic.StoreUint32(&answerSent, 1)
-						// log.Debugf("[%v]: Sent answer SDP for connection with id '%v' from peer '%v': %v", n.id, connID, src, answer)
-
-						for _, c := range pending {
-							if err := n.SendCandidate(src, connID, c); err != nil {
-								log.Errorf("[%v]: Failed to send ICE candidate for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
-								return
-							}
-						}
-					}()
-				}
-			}
 		case types.CandidatePacketType:
 			{
-				c := webrtc.ICECandidateInit{
-					Candidate: m["data"].(string),
+
+				c := webrtc.ICECandidateInit{}
+				err = json.Unmarshal([]byte(m["data"].(string)), &c)
+				if err != nil {
+					log.Errorf("Failed to unmarshal data into ICECandidateInit: %v", err)
+					break
 				}
 				if n.onICECandidate != nil {
 					n.onICECandidate(src, connID, &c)
@@ -305,26 +215,102 @@ func (n *Node) HandleServerMessages() {
 				if n.onSDP != nil {
 					n.onSDP(src, connID, sdp)
 				} else {
-					pc, ok := n.connections[connID]
-					if !ok {
-						log.Errorf("[%v]: Unknown connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
-						break
-					}
-					if err = pc.SetRemoteDescription(*sdp); err != nil {
-						log.Errorf("[%v]: Failed to set remote description with SDP for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
-						break
+					if sdp.Type == webrtc.SDPTypeOffer {
+						pc, err := n.api.NewPeerConnection(*n.config)
+						if err != nil {
+							log.Errorf("[%v]: Failed to set up new peer-connection: %v", n.ID, err)
+							break
+						}
+						var connCallback func(*webrtc.PeerConnection)
+						func() {
+							n.Lock()
+							defer n.Unlock()
+							connCallback = n.onPeerConnection
+							n.connections[connID] = &PeerConnection{
+								UUID:           connID,
+								PeerConnection: pc,
+							}
+						}()
+
+						answerSent := uint32(0)
+						pending := make([]*webrtc.ICECandidate, 0)
+
+						pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+							if c == nil {
+								return
+							}
+							if atomic.LoadUint32(&answerSent) == 1 {
+								if err := n.SendCandidate(src, connID, c); err != nil {
+
+								}
+							} else {
+								pending = append(pending, c)
+							}
+						})
+						pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+							log.Debugf("[%v]: Connection state for connection with id '%v' to peer '%v' has changed: %s\n", n.ID, connID, src, s.String())
+
+							if s == webrtc.PeerConnectionStateFailed {
+								// Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
+								// Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
+								// Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
+								log.Errorf("[%v]: Peer Connection has gone to failed.. stopping transfer\n", n.ID)
+							}
+						})
+
+						if connCallback != nil {
+							connCallback(pc)
+						}
+						err = pc.SetRemoteDescription(*sdp)
+						if err != nil {
+							log.Errorf("[%v]: Failed to set remote description with offer from peer '%v': %v", n.ID, src, err)
+							break
+						}
+						answer, err := pc.CreateAnswer(nil)
+						if err != nil {
+							log.Errorf("[%v]: Failed to create answer for offer from peer '%v': %v", n.ID, src, err)
+							break
+						}
+						go func() {
+							answerGatheringComplete := webrtc.GatheringCompletePromise(pc)
+							if err := pc.SetLocalDescription(answer); err != nil {
+								log.Errorf("[%v]: Failed to set answer as local description for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
+								return
+							}
+							<-answerGatheringComplete
+							log.Debugf("[%v]: Gathering complete for connection with id '%v' from peer '%v'", n.ID, connID, src)
+
+							// TODO: Send answer
+							if err := n.SendSDP(src, connID, &answer); err != nil {
+								log.Errorf("[%v]: Failed to send answer for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
+								return
+							}
+							atomic.StoreUint32(&answerSent, 1)
+							// log.Debugf("[%v]: Sent answer SDP for connection with id '%v' from peer '%v': %v", n.id, connID, src, answer)
+
+							for _, c := range pending {
+								if err := n.SendCandidate(src, connID, c); err != nil {
+									log.Errorf("[%v]: Failed to send ICE candidate for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
+									return
+								}
+							}
+						}()
+					} else {
+						pc, ok := n.connections[connID]
+						if !ok {
+							log.Errorf("[%v]: Unknown connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
+							break
+						}
+						if err = pc.SetRemoteDescription(*sdp); err != nil {
+							log.Errorf("[%v]: Failed to set remote description with SDP for connection with id '%v' from peer '%v': %v", n.ID, connID, src, err)
+							break
+						}
 					}
 				}
 			}
 		}
 	}
 
-}
-
-func (n *Node) OnOffer(cb func(src string, connID string, offer *webrtc.SessionDescription)) {
-	n.Lock()
-	defer n.Unlock()
-	n.onOffer = cb
 }
 
 func (n *Node) OnSDP(cb func(src string, connID string, offer *webrtc.SessionDescription)) {
