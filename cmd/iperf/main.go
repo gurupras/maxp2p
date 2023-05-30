@@ -4,10 +4,13 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/gurupras/maxp2p/v2"
@@ -18,11 +21,12 @@ import (
 )
 
 var (
-	app          = kingpin.New("iperf", "Tool to measure bandwidth of maxp2p between two peers")
-	name         = app.Flag("name", "Name of peer. Used to connect two peers").Short('n').String()
-	signalServer = app.Flag("signal-server", "Server address. Used for signaling between peers").Short('S').Required().String()
-	verbose      = app.Flag("verbose", "Verbose logs").Short('v').Default("false").Bool()
-	rawProfiles  = app.Flag("profile", "Profile the application. Valid options are cpu,memory,block,mutex").String()
+	app               = kingpin.New("iperf", "Tool to measure bandwidth of maxp2p between two peers")
+	name              = app.Flag("name", "Name of peer. Used to connect two peers").Short('n').String()
+	signalServer      = app.Flag("signal-server", "Server address. Used for signaling between peers").Short('S').Required().String()
+	verbose           = app.Flag("verbose", "Verbose logs").Short('v').Default("false").Bool()
+	rawProfiles       = app.Flag("profile", "Profile the application. Valid options are cpu,memory,block,mutex").String()
+	monitorGoroutines = app.Flag("grmon", "Monitor goroutines").Short('g').Default("0").Int()
 
 	server = app.Command("server", "Run as 'server'. Waits for incoming connections")
 
@@ -104,6 +108,12 @@ func main() {
 		mp2p.OnICECandidate(connID, c)
 	})
 
+	if *monitorGoroutines > 0 {
+		addr := fmt.Sprintf(":%v", *monitorGoroutines)
+		go http.ListenAndServe(addr, nil)
+		log.Infof("Started http server on %v", addr)
+	}
+
 	if len(*rawProfiles) > 0 {
 		*rawProfiles = strings.ReplaceAll(*rawProfiles, " ", ",")
 		profiles := strings.Split(*rawProfiles, ",")
@@ -115,7 +125,7 @@ func main() {
 				if p == "cpu" {
 					profileFunctions = append(profileFunctions, profile.CPUProfile)
 				} else if p == "memory" {
-					profileFunctions = append(profileFunctions, profile.MemProfile)
+					profileFunctions = append(profileFunctions, profile.MemProfile, profile.MemProfileRate(4096))
 				} else if p == "block" {
 					profileFunctions = append(profileFunctions, profile.BlockProfile)
 				} else if p == "mutex" {
