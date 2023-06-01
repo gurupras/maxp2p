@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const MaxPacketSize = 65535
+const MaxPacketSize = 16384
 
 type Role string
 
@@ -63,7 +63,7 @@ type MaxP2P struct {
 type P2PConn struct {
 	pc *webrtc.PeerConnection
 	sync.Mutex
-	combinedDC *utils.CombinedDC
+	combinedDC *utils.NamedDC
 	onData     func(data interface{}, discard func())
 }
 
@@ -74,7 +74,6 @@ func (p *P2PConn) Close() error {
 
 func New(name string, peer string, iface SendInterface, serde network.SerDe, createPacket func() interface{}, config webrtc.Configuration, maxBufferSize uint64) (*MaxP2P, error) {
 	settings := webrtc.SettingEngine{}
-	settings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(settings))
 
 	writeChan := make(chan network.WritePacket, 10)
@@ -238,18 +237,14 @@ func (m *MaxP2P) OnOffer(src string, connID string, offer *webrtc.SessionDescrip
 
 	moveConnected := sync.Once{}
 
-	var combinedDC *utils.CombinedDC
+	var combinedDC *utils.NamedDC
 	dcWG := sync.WaitGroup{}
 	dcWG.Add(1)
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		dc.OnOpen(func() {
 			defer dcWG.Done()
-			combinedDC, err = utils.NewCombinedDC(dc, m.maxBufferSize)
-			if err != nil {
-				log.Errorf("[%v]: Failed to create combinedDC for connection with id '%v' from peer '%v': %v", m.name, connID, src, err)
-				return
-			}
+			combinedDC = utils.NewNamedDC(dc, m.maxBufferSize, dc.Label())
 		})
 	})
 
@@ -381,7 +376,12 @@ func (m *MaxP2P) newPeerConnection(peer string) (*P2PConn, error) {
 		}
 	})
 	// We need to connect this
-	dc, err := pc.CreateDataChannel(fmt.Sprintf("%v-%v-data", peer, connID), nil)
+	ordered := true
+	maxRetransmits := uint16(10)
+	dc, err := pc.CreateDataChannel(fmt.Sprintf("%v-%v-data", peer, connID), &webrtc.DataChannelInit{
+		Ordered:        &ordered,
+		MaxRetransmits: &maxRetransmits,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -411,11 +411,7 @@ func (m *MaxP2P) newPeerConnection(peer string) (*P2PConn, error) {
 	// Wait for datachannel to be opened
 	wg.Wait()
 
-	cdc, err := utils.NewCombinedDC(dc, m.maxBufferSize)
-	if err != nil {
-		log.Errorf("[%v]: Failed to create combinedDC for connection with id '%v' from peer '%v': %v", m.name, connID, peer, err)
-		return nil, err
-	}
+	cdc := utils.NewNamedDC(dc, m.maxBufferSize, dc.Label())
 
 	m.Lock()
 	defer m.Unlock()
@@ -436,8 +432,6 @@ func (m *MaxP2P) AddConnection(connID string, conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleWrites(conn *P2PConn) {
-	encoder := m.serde.CreateEncoder(conn.combinedDC)
-
 	globalWriteChan := m.writeChan
 	var serialWriteChan chan network.WritePacket
 	m.handleSerialWrites.Do(func() {
@@ -445,7 +439,8 @@ func (m *MaxP2P) handleWrites(conn *P2PConn) {
 	})
 
 	encode := func(writePkt network.WritePacket) {
-		err := encoder.Encode(writePkt.GetData())
+		b, _ := m.serde.Marshal(writePkt.GetData())
+		_, err := conn.combinedDC.Write(b)
 		writePkt.GetCallback()(writePkt, err)
 	}
 
@@ -471,8 +466,16 @@ func (m *MaxP2P) handleWrites(conn *P2PConn) {
 }
 
 func (m *MaxP2P) handleReads(conn *P2PConn) error {
-	err := m.chunkCombiner.AddReader(conn.combinedDC, fmt.Sprintf("combiner-%v-%v", m.name, conn.combinedDC.Name))
-	return err
+	// err := m.chunkCombiner.AddReader(conn.combinedDC, fmt.Sprintf("combiner-%v-%v", m.name, conn.combinedDC.Name))
+	dc := conn.combinedDC.DataChannel()
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		err := m.chunkCombiner.ProcessIncomingBytes(msg.Data)
+		if err != nil {
+			log.Errorf("[%v]: Failed to process incoming bytes: %v", m.name, err)
+			return
+		}
+	})
+	return nil
 }
 
 func (m *MaxP2P) Send(data interface{}) error {

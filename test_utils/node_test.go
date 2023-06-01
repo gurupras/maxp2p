@@ -22,7 +22,6 @@ func TestWebRTCConnection(t *testing.T) {
 	urlStr := backend.URL
 
 	webrtcSettings := webrtc.SettingEngine{}
-	webrtcSettings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(webrtcSettings))
 
 	config := webrtc.Configuration{}
@@ -81,7 +80,6 @@ func TestCreateChannelAfterConnection(t *testing.T) {
 	urlStr := backend.URL
 
 	webrtcSettings := webrtc.SettingEngine{}
-	webrtcSettings.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(webrtcSettings))
 
 	config := webrtc.Configuration{}
@@ -121,9 +119,6 @@ func TestCreateChannelAfterConnection(t *testing.T) {
 		require.Nil(err)
 		dc1.OnOpen(func() {
 			defer wg1.Done()
-			_, err := dc1.Detach()
-			require.Nil(err)
-
 		})
 	})
 	require.Nil(err)
@@ -139,8 +134,6 @@ func TestCreateChannelAfterConnection(t *testing.T) {
 		go func() {
 			dc.OnOpen(func() {
 				defer wg1.Done()
-				_, err := dc.Detach()
-				require.Nil(err)
 			})
 		}()
 	})
@@ -149,12 +142,10 @@ func TestCreateChannelAfterConnection(t *testing.T) {
 		dc, err := pc1.CreateDataChannel(gonanoid.Must(), nil)
 		require.Nil(err)
 		go func(dc *webrtc.DataChannel) {
-			log.Debugf("[%v]: Waiting for open+detach", d1)
+			log.Debugf("[%v]: Waiting for open", d1)
 			dc.OnOpen(func() {
 				defer wg1.Done()
-				_, err := dc.Detach()
-				require.Nil(err)
-				log.Debugf("[%v]: Done waiting for open+detach", d1)
+				log.Debugf("[%v]: Done waiting for open", d1)
 			})
 		}(dc)
 	}

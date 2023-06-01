@@ -73,10 +73,9 @@ func main() {
 		},
 	}
 
-	// Create a SettingEngine and enable Detach
+	// Create a SettingEngine
 	s := webrtc.SettingEngine{}
 	s.SetSCTPMaxReceiveBufferSize(100 * 1024 * 1024)
-	s.DetachDataChannels()
 
 	// Create an API object with the engine
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))

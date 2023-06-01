@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/alecthomas/kingpin v2.2.6+incompatible
 	github.com/gorilla/websocket v1.5.0
-	github.com/gurupras/go-network v0.5.0
+	github.com/gurupras/go-network v0.6.0
 	github.com/matoous/go-nanoid/v2 v2.0.0
 	github.com/pion/datachannel v1.5.5
 	github.com/pion/webrtc/v3 v3.1.55

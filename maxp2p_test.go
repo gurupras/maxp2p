@@ -42,9 +42,8 @@ func (m *maxP2PTest) SetupTest() {
 		},
 	}
 
-	// Create a SettingEngine and enable Detach
+	// Create a SettingEngine
 	s := webrtc.SettingEngine{}
-	s.DetachDataChannels()
 
 	// Create an API object with the engine
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
@@ -131,15 +130,15 @@ func (m *maxP2PTest) testWrite(expected []byte) {
 		onPeerConnection := func(pc *webrtc.PeerConnection) {
 			pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 				dc.OnOpen(func() {
-					raw, err := dc.Detach()
-					require.Nil(err)
-
-					go chunkCombiner.AddReader(raw, "pc")
+					dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+						err := chunkCombiner.ProcessIncomingBytes(msg.Data)
+						require.Nil(err)
+					})
 					read = func() []byte {
 						reader := <-outChan
 						decoder := serde.CreateDecoder(reader)
 						pkt := &pkt{}
-						err = decoder.Decode(pkt)
+						err := decoder.Decode(pkt)
 						require.Nil(err)
 						return pkt.Data.([]byte)
 					}
@@ -205,17 +204,17 @@ func (m *maxP2PTest) TestRead() {
 					once.Do(func() {
 						defer wg.Done()
 						serde := &test_utils.MsgpackSerDe{}
-						combinedDC, err := utils.NewCombinedDC(dc, 1*1024*1024)
+						combinedDC := utils.NewNamedDC(dc, 1*1024*1024, dc.Label())
 						chunkSplitter := network.NewChunkSplitter("pc", MaxPacketSize-64, serde, writePktChan)
-						encoder := serde.CreateEncoder(combinedDC)
 						go func() {
 							for writePkt := range writePktChan {
-								err := encoder.Encode(writePkt.GetData())
+								b, err := serde.Marshal(writePkt.GetData())
+								require.Nil(err)
+								err = combinedDC.DataChannel().Send(b)
 								writePkt.GetCallback()(writePkt, err)
 								require.Nil(err)
 							}
 						}()
-						require.Nil(err)
 
 						send = func(v interface{}) error {
 							return chunkSplitter.Encode(v)

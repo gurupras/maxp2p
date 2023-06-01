@@ -1,8 +1,30 @@
 package types
 
 import (
+	"io"
+
 	"github.com/pion/webrtc/v3"
 )
+
+type Named interface {
+	Name() string
+}
+
+type NamedReadWriter interface {
+	Named
+	io.ReadWriter
+}
+
+type NamedWriteCloser interface {
+	Named
+	io.Writer
+	io.Closer
+}
+
+type NamedReadWriteCloser interface {
+	NamedReadWriter
+	io.Closer
+}
 
 type Packet struct {
 	ConnectionID string     `json:"connectionID"`
