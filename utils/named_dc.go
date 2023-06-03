@@ -25,17 +25,20 @@ func NewNamedDC(dc *webrtc.DataChannel, maxBufferedAmount uint64, name string) *
 	ret := &NamedDC{
 		name:              name,
 		dc:                dc,
-		ch:                make(chan struct{}, 1),
+		ch:                make(chan struct{}),
 		counter:           0,
 		maxBufferedAmount: maxBufferedAmount,
 	}
 
 	dc.OnBufferedAmountLow(func() {
-		log.Debugf("[%v]: Buffered amount low", ret.name)
-		newVal := atomic.AddUint64(&ret.counter, 1)
-		log.Debugf("[%v]: Attempting to notify writable (counter=%v)", ret.name, newVal)
-		ret.ch <- struct{}{}
-		log.Debugf("[%v]: Notified writable (counter=%v)", ret.name, newVal)
+		// log.Debugf("[%v]: Buffered amount low", ret.name)
+		// newVal := atomic.AddUint64(&ret.counter, 1)
+		// log.Debugf("[%v]: Attempting to notify writable (counter=%v)", ret.name, newVal)
+		select {
+		case ret.ch <- struct{}{}:
+		default:
+		}
+		// log.Debugf("[%v]: Notified writable (counter=%v)", ret.name, newVal)
 	})
 	return ret
 }
