@@ -13,8 +13,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 10 * time.Second
+	pingPeriod = (pongWait * 9) / 10
+)
+
 type ServerConnection struct {
-	*websocket.Conn
+	Conn     *websocket.Conn
 	deviceID string
 	sync.Mutex
 }
@@ -52,6 +58,27 @@ func NewServerConnection(deviceID, urlStr string) (*ServerConnection, error) {
 		return nil, err
 	}
 
+	c.SetPongHandler(func(appData string) error {
+		c.SetReadDeadline(time.Now().Add(pongWait))
+		// log.Debugf("[%v-serverConn]: Got pong message", deviceID)
+		return nil
+	})
+
+	// Periodic pings
+	go func() {
+		pingTicker := time.NewTicker(pingPeriod)
+		defer pingTicker.Stop()
+		defer c.Close()
+
+		for range pingTicker.C {
+			if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Warnf("Failed to write ping message: %v", err)
+				return
+			}
+			// log.Debugf("[%v-serverConn]: Wrote ping message", deviceID)
+		}
+	}()
+
 	return &ServerConnection{c, deviceID, sync.Mutex{}}, nil
 }
 
@@ -68,7 +95,7 @@ func (s *ServerConnection) SendCandidate(peer string, connID string, c *webrtc.I
 		Src:  s.deviceID,
 		Dest: peer,
 	}
-	err := s.WriteJSON(pkt)
+	err := s.Conn.WriteJSON(pkt)
 	if err == nil {
 		log.Debugf("[%v]: Sent ICE candidate for connection with id '%v' to peer '%v'", s.deviceID, connID, peer)
 	}
@@ -92,7 +119,7 @@ func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.Sessi
 		Src:  s.deviceID,
 		Dest: peer,
 	}
-	err := s.WriteJSON(pkt)
+	err := s.Conn.WriteJSON(pkt)
 	if err == nil {
 		log.Debugf("[%v]: Sent SDP for connection with id '%v' to peer '%v' (type=%v): %v", s.deviceID, connID, peer, sdp.Type, string(b))
 	}
@@ -100,5 +127,5 @@ func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.Sessi
 }
 
 func (s *ServerConnection) Close() error {
-	return s.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
+	return s.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Time{})
 }

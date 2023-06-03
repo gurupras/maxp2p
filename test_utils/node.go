@@ -160,7 +160,7 @@ func (n *Node) HandleServerMessages() {
 	defer n.WaitGroup.Done()
 
 	for atomic.LoadUint32(&n.StopServerConn) == 0 {
-		_, message, err := n.ReadMessage()
+		_, message, err := n.Conn.ReadMessage()
 		if err != nil {
 			if _, ok := err.(*websocket.CloseError); !ok || atomic.LoadUint32(&n.StopServerConn) != 1 {
 				// We haven't been asked to stop and we ran into an error. Log this.
