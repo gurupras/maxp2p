@@ -24,9 +24,8 @@ const (
 type SignalFunc func(b []byte) error
 
 type SendInterface interface {
-	SendOffer(dest string, connID string, offer *webrtc.SessionDescription) error
-	SendICECandidate(dest string, connID string, candidate *webrtc.ICECandidate) error
 	SendSDP(dest string, connID string, sdp *webrtc.SessionDescription) error
+	SendICECandidate(dest string, connID string, candidate *webrtc.ICECandidate) error
 }
 
 type IncomingSignalInterface interface {
@@ -395,7 +394,7 @@ func (m *MaxP2P) newPeerConnection(peer string) (*P2PConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = m.iface.SendOffer(peer, connID, &offer)
+	err = m.iface.SendSDP(peer, connID, &offer)
 	if err != nil {
 		return nil, err
 	}

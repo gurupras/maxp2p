@@ -102,10 +102,6 @@ func (s *ServerConnection) SendCandidate(peer string, connID string, c *webrtc.I
 	return err
 }
 
-func (s *ServerConnection) SendOffer(peer string, connID string, sdp *webrtc.SessionDescription) error {
-	return s.SendSDP(peer, connID, sdp)
-}
-
 func (s *ServerConnection) SendSDP(peer string, connID string, sdp *webrtc.SessionDescription) error {
 	s.Lock()
 	defer s.Unlock()

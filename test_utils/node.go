@@ -138,7 +138,7 @@ func (n *Node) Offer(peer string, cb func(*webrtc.PeerConnection)) error {
 		return err
 	}
 	<-offerGatheringComplete
-	if err := n.SendOffer(peer, connID, &offer); err != nil {
+	if err := n.SendSDP(peer, connID, &offer); err != nil {
 		log.Errorf("[%v]: Failed to send offer for connection with id '%v' for peer '%v': %v\n", n.ID, connID, peer, err)
 		return err
 	}

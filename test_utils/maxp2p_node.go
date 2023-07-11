@@ -10,10 +10,6 @@ func (n *MaxP2PTestNode) SendICECandidate(dest string, connID string, candidate 
 	return n.Node.SendCandidate(dest, connID, candidate)
 }
 
-func (n *MaxP2PTestNode) SendOffer(dest string, connID string, offer *webrtc.SessionDescription) error {
-	return n.Node.SendOffer(dest, connID, offer)
-}
-
 func (n *MaxP2PTestNode) SendSDP(dest string, connID string, sdp *webrtc.SessionDescription) error {
 	return n.Node.SendSDP(dest, connID, sdp)
 }
