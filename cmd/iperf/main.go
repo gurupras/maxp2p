@@ -13,8 +13,8 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/gurupras/maxp2p/v3"
-	"github.com/gurupras/maxp2p/v3/test_utils"
+	"github.com/gurupras/maxp2p/v5"
+	"github.com/gurupras/maxp2p/v5/test_utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
@@ -97,11 +97,7 @@ func main() {
 	}
 
 	node.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		if sdp.Type == webrtc.SDPTypeOffer {
-			mp2p.OnOffer(src, connID, sdp)
-		} else {
-			mp2p.OnAnswer(connID, sdp)
-		}
+		mp2p.OnSDP(src, connID, sdp)
 	})
 	node.OnICECandidate(func(src, connID string, c *webrtc.ICECandidateInit) {
 		mp2p.OnICECandidate(connID, c)

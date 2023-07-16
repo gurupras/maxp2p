@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gurupras/go-network"
-	"github.com/gurupras/maxp2p/v3/utils"
+	"github.com/gurupras/maxp2p/v5/utils"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
 )
@@ -29,8 +29,7 @@ type SendInterface interface {
 }
 
 type IncomingSignalInterface interface {
-	OnOffer(src string, connID string, offer *webrtc.SessionDescription) error
-	OnAnswer(src string, connID string, answer *webrtc.SessionDescription) error
+	OnSDP(src string, connID string, offer *webrtc.SessionDescription) error
 	OnICECandidate(src string, connID string, candidate *webrtc.ICECandidate) error
 }
 
@@ -189,7 +188,15 @@ func (m *MaxP2P) OnData(cb func(data interface{}, discard func())) {
 	}
 }
 
-func (m *MaxP2P) OnOffer(src string, connID string, offer *webrtc.SessionDescription) error {
+func (m *MaxP2P) OnSDP(src string, connID string, sdp *webrtc.SessionDescription) error {
+	if sdp.Type == webrtc.SDPTypeOffer {
+		return m.onOffer(src, connID, sdp)
+	} else {
+		return m.onAnswer(connID, sdp)
+	}
+}
+
+func (m *MaxP2P) onOffer(src string, connID string, offer *webrtc.SessionDescription) error {
 	pc, err := m.api.NewPeerConnection(m.config)
 	if err != nil {
 		return err
@@ -296,7 +303,7 @@ func (m *MaxP2P) OnOffer(src string, connID string, offer *webrtc.SessionDescrip
 	return nil
 }
 
-func (m *MaxP2P) OnAnswer(connID string, answer *webrtc.SessionDescription) error {
+func (m *MaxP2P) onAnswer(connID string, answer *webrtc.SessionDescription) error {
 	var pc *webrtc.PeerConnection
 	var err error
 	func() {

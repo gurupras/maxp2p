@@ -1,4 +1,4 @@
-module github.com/gurupras/maxp2p/v3
+module github.com/gurupras/maxp2p/v5
 
 go 1.19
 

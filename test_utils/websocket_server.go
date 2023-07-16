@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/gurupras/maxp2p/v3/types"
+	"github.com/gurupras/maxp2p/v5/types"
 	log "github.com/sirupsen/logrus"
 )
 

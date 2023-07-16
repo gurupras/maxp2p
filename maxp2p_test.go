@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gurupras/go-network"
-	"github.com/gurupras/maxp2p/v3/test_utils"
-	"github.com/gurupras/maxp2p/v3/utils"
+	"github.com/gurupras/maxp2p/v5/test_utils"
+	"github.com/gurupras/maxp2p/v5/utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -72,11 +72,7 @@ func (m *maxP2PTest) SetupTest() {
 		m.maxp2p1.OnICECandidate(connID, c)
 	})
 	m.p1.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		if sdp.Type == webrtc.SDPTypeOffer {
-			m.maxp2p1.OnOffer(src, connID, sdp)
-		} else {
-			m.maxp2p1.OnAnswer(connID, sdp)
-		}
+		m.maxp2p1.OnSDP(src, connID, sdp)
 	})
 }
 
@@ -287,11 +283,7 @@ func (m *maxP2PWithMaxP2P) SetupTest() {
 		m.maxp2p2.OnICECandidate(connID, c)
 	})
 	m.p2.OnSDP(func(src, connID string, sdp *webrtc.SessionDescription) {
-		if sdp.Type == webrtc.SDPTypeOffer {
-			m.maxp2p2.OnOffer(src, connID, sdp)
-		} else {
-			m.maxp2p2.OnAnswer(connID, sdp)
-		}
+		m.maxp2p2.OnSDP(src, connID, sdp)
 	})
 }
 

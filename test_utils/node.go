@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gorilla/websocket"
-	"github.com/gurupras/maxp2p/v3/types"
+	"github.com/gurupras/maxp2p/v5/types"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
