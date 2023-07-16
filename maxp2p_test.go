@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gurupras/go-network"
-	"github.com/gurupras/maxp2p/v5/test_utils"
-	"github.com/gurupras/maxp2p/v5/utils"
+	"github.com/gurupras/maxp2p/v6/test_utils"
+	"github.com/gurupras/maxp2p/v6/utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"

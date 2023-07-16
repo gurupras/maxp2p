@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gurupras/go-network"
-	"github.com/gurupras/maxp2p/v5/utils"
+	"github.com/gurupras/maxp2p/v6/utils"
 	"github.com/pion/webrtc/v3"
 	log "github.com/sirupsen/logrus"
 )

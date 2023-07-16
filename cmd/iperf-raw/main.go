@@ -12,7 +12,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/gurupras/maxp2p/v5/test_utils"
+	"github.com/gurupras/maxp2p/v6/test_utils"
 	"github.com/pion/webrtc/v3"
 	"github.com/pkg/profile"
 	log "github.com/sirupsen/logrus"
