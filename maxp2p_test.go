@@ -287,6 +287,45 @@ func (m *maxP2PWithMaxP2P) SetupTest() {
 	})
 }
 
+func (m *maxP2PWithMaxP2P) TestClose() {
+	var pc *webrtc.PeerConnection
+	m.maxp2p1.onPeerConnection = func(c *webrtc.PeerConnection) {
+		pc = c
+	}
+	m.maxp2p1.Start(1)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	m.maxp2p1.OnDisconnect(func(pc *webrtc.PeerConnection) {
+		defer wg.Done()
+	})
+	pc.Close()
+	wg.Wait()
+}
+
+func (m *maxP2PWithMaxP2P) TestNumConnections() {
+	require := require.New(m.T())
+
+	var pcs []*webrtc.PeerConnection
+	m.maxp2p1.onPeerConnection = func(c *webrtc.PeerConnection) {
+		pcs = append(pcs, c)
+	}
+	numConnections := 20
+	m.maxp2p1.Start(numConnections)
+	wg := sync.WaitGroup{}
+	wg.Add(numConnections)
+
+	numDisconnected := 0
+	m.maxp2p1.OnDisconnect(func(pc *webrtc.PeerConnection) {
+		numDisconnected++
+		require.Equal(numConnections-numDisconnected, m.maxp2p1.NumConnections()-numDisconnected)
+		defer wg.Done()
+	})
+	for _, pc := range pcs {
+		pc.Close()
+	}
+	wg.Wait()
+}
+
 func TestMaxP2PWithMaxP2P(t *testing.T) {
 	// log.SetLevel(log.DebugLevel)
 	suite.Run(t, new(maxP2PWithMaxP2P))

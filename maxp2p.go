@@ -56,13 +56,63 @@ type MaxP2P struct {
 	stopped                  bool
 	onData                   func(data interface{}, discard func())
 	onPeerConnection         func(*webrtc.PeerConnection)
+	onDisconnect             func(*webrtc.PeerConnection)
 }
 
 type P2PConn struct {
 	pc *webrtc.PeerConnection
 	sync.Mutex
-	combinedDC *utils.NamedDC
-	onData     func(data interface{}, discard func())
+	combinedDC           *utils.NamedDC
+	onData               func(data interface{}, discard func())
+	stateChangeCallbacks map[uint64]func(s webrtc.PeerConnectionState)
+	cbIdx                uint64
+}
+
+func NewP2PConn(pc *webrtc.PeerConnection, dc *utils.NamedDC, onData func(data interface{}, discard func())) *P2PConn {
+	conn := &P2PConn{
+		pc:                   pc,
+		Mutex:                sync.Mutex{},
+		combinedDC:           dc,
+		onData:               onData,
+		stateChangeCallbacks: make(map[uint64]func(s webrtc.PeerConnectionState)),
+		cbIdx:                0,
+	}
+
+	pc.OnConnectionStateChange(func(pcs webrtc.PeerConnectionState) {
+		cbs := make([]func(webrtc.PeerConnectionState), 0)
+		func() {
+			conn.Lock()
+			defer conn.Unlock()
+			for _, cb := range conn.stateChangeCallbacks {
+				cbs = append(cbs, cb)
+			}
+		}()
+		for _, cb := range cbs {
+			cb(pcs)
+		}
+	})
+	return conn
+}
+
+func (p *P2PConn) addStateChangeCallback(cb func(webrtc.PeerConnectionState)) func() {
+	p.Lock()
+	defer p.Unlock()
+	id := p.cbIdx
+	p.cbIdx += 1
+	p.stateChangeCallbacks[id] = cb
+	return func() {
+		p.Lock()
+		defer p.Unlock()
+		delete(p.stateChangeCallbacks, id)
+	}
+}
+
+func (p *P2PConn) addCloseCallback(cb func(pc *webrtc.PeerConnection)) func() {
+	return p.addStateChangeCallback(func(pcs webrtc.PeerConnectionState) {
+		if pcs == webrtc.PeerConnectionStateClosed {
+			cb(p.pc)
+		}
+	})
 }
 
 func (p *P2PConn) Close() error {
@@ -105,6 +155,7 @@ func New(name string, peer string, iface SendInterface, serde network.SerDe, cre
 		incomingDataChan:         incomingDataChan,
 		connID:                   0,
 		stopped:                  false,
+		onDisconnect:             nil,
 	}
 
 	go ret.handleIncomingData()
@@ -152,16 +203,26 @@ func (m *MaxP2P) Start(connections ...int) error {
 		pcCallback = m.onPeerConnection
 	}()
 
+	var err error
+	wg := sync.WaitGroup{}
+	wg.Add(numConnections)
 	for idx := 0; idx < numConnections; idx++ {
-		conn, err := m.newPeerConnection(m.peer)
-		if err != nil {
-			return err
-		}
-		if pcCallback != nil {
-			pcCallback(conn.pc)
-		}
+		go func() {
+			defer wg.Done()
+			var conn *P2PConn
+			var localErr error
+			conn, localErr = m.newPeerConnection(m.peer)
+			if localErr != nil {
+				err = localErr
+				return
+			}
+			if pcCallback != nil {
+				pcCallback(conn.pc)
+			}
+		}()
 	}
-	return nil
+	wg.Wait()
+	return err
 }
 
 func (m *MaxP2P) Close() error {
@@ -201,6 +262,19 @@ func (m *MaxP2P) onOffer(src string, connID string, offer *webrtc.SessionDescrip
 	if err != nil {
 		return err
 	}
+
+	conn := NewP2PConn(pc, nil, nil)
+	conn.addCloseCallback(func(pc *webrtc.PeerConnection) {
+		var cb func(pc *webrtc.PeerConnection)
+		func() {
+			m.Lock()
+			defer m.Unlock()
+			cb = m.onDisconnect
+		}()
+		if cb != nil {
+			cb(pc)
+		}
+	})
 
 	var pcCallback func(*webrtc.PeerConnection)
 
@@ -254,7 +328,8 @@ func (m *MaxP2P) onOffer(src string, connID string, offer *webrtc.SessionDescrip
 		})
 	})
 
-	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+	var remove func()
+	remove = conn.addStateChangeCallback(func(s webrtc.PeerConnectionState) {
 		log.Debugf("[%v]: Connection state for connection with id '%v' to peer '%v' has changed: %s\n", m.name, connID, src, s.String())
 
 		if s == webrtc.PeerConnectionStateFailed {
@@ -264,15 +339,12 @@ func (m *MaxP2P) onOffer(src string, connID string, offer *webrtc.SessionDescrip
 			log.Errorf("[%v]: Peer Connection has gone to failed.. stopping transfer\n", m.name)
 		} else if s == webrtc.PeerConnectionStateConnected {
 			moveConnected.Do(func() {
+				remove()
 				dcWG.Wait()
+				conn.combinedDC = combinedDC
 				m.Lock()
 				defer m.Unlock()
-				conn := &P2PConn{
-					pc:         pc,
-					Mutex:      sync.Mutex{},
-					combinedDC: combinedDC,
-					onData:     m.onData,
-				}
+				conn.onData = m.onData
 				m.AddConnection(connID, conn)
 				delete(m.unestablishedConnections, connID)
 			})
@@ -381,6 +453,7 @@ func (m *MaxP2P) newPeerConnection(peer string) (*P2PConn, error) {
 			}
 		}
 	})
+
 	// We need to connect this
 	ordered := true
 	maxRetransmits := uint16(10)
@@ -421,12 +494,20 @@ func (m *MaxP2P) newPeerConnection(peer string) (*P2PConn, error) {
 
 	m.Lock()
 	defer m.Unlock()
-	conn := &P2PConn{
-		pc:         pc,
-		Mutex:      sync.Mutex{},
-		combinedDC: cdc,
-		onData:     m.onData,
-	}
+
+	conn := NewP2PConn(pc, cdc, m.onData)
+	conn.addCloseCallback(func(pc *webrtc.PeerConnection) {
+		var cb func(pc *webrtc.PeerConnection)
+		func() {
+			m.Lock()
+			defer m.Unlock()
+			cb = m.onDisconnect
+		}()
+		if cb != nil {
+			cb(pc)
+		}
+	})
+
 	m.AddConnection(connID, conn)
 	return conn, nil
 }
@@ -494,4 +575,16 @@ func (m *MaxP2P) SendSerial(data interface{}) error {
 
 func (m *MaxP2P) _send(data interface{}) error {
 	return m.chunkSplitter.Encode(data)
+}
+
+func (m *MaxP2P) OnDisconnect(cb func(pc *webrtc.PeerConnection)) {
+	m.Lock()
+	defer m.Unlock()
+	m.onDisconnect = cb
+}
+
+func (m *MaxP2P) NumConnections() int {
+	m.Lock()
+	defer m.Unlock()
+	return len(m.connections)
 }
